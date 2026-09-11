@@ -230,14 +230,10 @@ export function pathMatchesWorkspace(cwd?: string, workspaceFolders: string[] = 
 }
 
 export function selectBestLock(locks: ClaudeIdeLock[], cwd?: string): ClaudeIdeLock | undefined {
-  const live = locks.filter((lock) => lock.pidAlive !== false);
-  const pool = live.length > 0 ? live : locks;
-  return [...pool].sort((a, b) => {
-    const aMatch = pathMatchesWorkspace(cwd, a.workspaceFolders) ? 1 : 0;
-    const bMatch = pathMatchesWorkspace(cwd, b.workspaceFolders) ? 1 : 0;
-    if (aMatch !== bMatch) return bMatch - aMatch;
-    return Number(b.mtimeMs ?? 0) - Number(a.mtimeMs ?? 0);
-  })[0];
+  const candidates = locks.filter(
+    (lock) => lock.pidAlive !== false && pathMatchesWorkspace(cwd, lock.workspaceFolders),
+  );
+  return [...candidates].sort((a, b) => Number(b.mtimeMs ?? 0) - Number(a.mtimeMs ?? 0))[0];
 }
 
 export function isPidAlive(pid?: number): boolean | undefined {
@@ -371,7 +367,13 @@ export async function getClaudeIdeContext(options: BridgeOptions = {}): Promise<
   if (locks.length === 0) return { ok: false, reason: 'no_lock', message: 'No Claude Code IDE lock files found.' };
 
   const lock = selectBestLock(locks, cwd);
-  if (!lock) return { ok: false, reason: 'no_matching_lock', message: 'No usable Claude Code IDE lock found.' };
+  if (!lock) {
+    return {
+      ok: false,
+      reason: 'no_matching_lock',
+      message: `No live Claude Code IDE bridge has ${cwd} in its workspace folders.`,
+    };
+  }
 
   try {
     const selection = await callClaudeIdeTool(lock, 'getLatestSelection', {}, options) as ClaudeIdeContext | undefined;
